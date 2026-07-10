@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  sagre-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sagre-scraper
+    # L'output JSON finisce in ./output sul tuo computer (host), anche se
+    # il container si ferma o viene ricreato.
+    volumes:
+      - ./output:/app/output
+    # Comando di default (vedi CMD nel Dockerfile): esegue un test rapido
+    # su 20 eventi con locandina/link ufficiale attivi.
+    #
+    # PER L'ESECUZIONE COMPLETA, sovrascrivi il comando cosi':
+    #
+    #   command: [
+    #     "--output", "/app/output/sagre_italia.json",
+    #     "--dettagli"
+    #   ]
+    #
+    # (rimuovendo --max-eventi otterrai tutti gli eventi trovati, ma
+    #  l'esecuzione durera' molto piu' a lungo: vedi le note sui tempi
+    #  nello script).
+    restart: "no"

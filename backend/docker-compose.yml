@@ -1,0 +1,40 @@
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sagre_db}
+      MYSQL_USER: ${MYSQL_USER:-sagre_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sagre_pass}
+    ports:
+      - "3316:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_pass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sagre_db}
+      MYSQL_USER: ${MYSQL_USER:-sagre_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sagre_pass}
+      IMPORT_JSON_PATH: /app/scraper_output/trovasagre2.0.json
+    ports:
+      - "8010:8010"
+    volumes:
+      - .:/app  # utile in sviluppo: riflette le modifiche al codice senza rebuild
+      - ../scraper/output:/app/scraper_output:ro  # output dello scraper, letto da GET /sagre/importa-file
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
