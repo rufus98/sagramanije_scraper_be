@@ -3927,10 +3927,7 @@
     "nome_sagra": "Rock sul Serio",
     "data_inizio": "2026-07-15",
     "data_fine": "2026-07-19",
-    "citta": [
-      "Villa di Serio",
-      null
-    ],
+    "citta":"Villa di Serio",
     "provincia": "BG",
     "lat": 45.7228588,
     "leng": 9.735020900000002,
@@ -4338,10 +4335,7 @@
     "nome_sagra": "Marabù festa anni 70 80 90",
     "data_inizio": "2026-07-16",
     "data_fine": "2026-07-19",
-    "citta": [
-      "Via Manzoni, Viadana MN, Italia",
-      null
-    ],
+    "citta": "Via Manzoni, Viadana MN, Italia",
     "provincia": "MN",
     "lat": 44.9280508,
     "leng": 10.5201102,
@@ -7869,10 +7863,7 @@
     "nome_sagra": "Festa di San Giacomo",
     "data_inizio": "2026-07-25",
     "data_fine": null,
-    "citta": [
-      "Borgo San Giacomo",
-      null
-    ],
+    "citta": "Borgo San Giacomo",
     "provincia": "BS",
     "lat": 45.349457,
     "leng": 9.9685579,
@@ -13356,10 +13347,7 @@
     "nome_sagra": "Water Music Festival",
     "data_inizio": "2026-07-03",
     "data_fine": "2026-09-06",
-    "citta": [
-      "Lago di Valbiolo",
-      null
-    ],
+    "citta": "Lago di Valbiolo",
     "provincia": "TN",
     "lat": 46.2721668,
     "leng": 10.5889887,
@@ -13695,10 +13683,7 @@
     "nome_sagra": "Va' Sentiero Fest",
     "data_inizio": "2026-07-05",
     "data_fine": "2026-07-17",
-    "citta": [
-      "Parco Nazionale del Pollino",
-      null
-    ],
+    "citta": "Parco Nazionale del Pollino",
     "provincia": "PZ",
     "lat": 39.94133,
     "leng": 16.122265,
