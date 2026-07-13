@@ -239,7 +239,7 @@ def sagre_vicine(
     # Ordine per data più vicina -> più lontana (non più per distanza).
     # data_inizio è "YYYY-MM-DD": l'ordine alfabetico coincide con quello
     # cronologico; le date mancanti finiscono in fondo.
-    risultati.sort(key=lambda r: r.data_inizio)
+    risultati.sort(key=lambda r: r.data_inizio or "9999-99-99")
     risultati = risultati[:limit]
 
     return VicineResponse(
