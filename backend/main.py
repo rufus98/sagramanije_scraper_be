@@ -203,9 +203,6 @@ def sagre_vicine(
             risultati=risultati,
         )
 
-    if raggio_km is None:
-        raise HTTPException(status_code=400, detail="raggio_km è obbligatorio quando lat e leng sono forniti.")
-
     delta_lat = raggio_km / KM_PER_DEGREE
     delta_leng = raggio_km / (KM_PER_DEGREE * max(0.1, abs(math.cos(math.radians(lat)))))
     candidati = (
