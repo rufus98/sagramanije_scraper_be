@@ -241,8 +241,8 @@ def main():
     print(f"Totale eventi scaricati: {len(raw_events)}")
     with open('/app/output/main.json', "w", encoding="utf-8") as f:
         json.dump(raw_events, f, ensure_ascii=False, indent=2)
-    records = [build_record(event) for event in raw_events]
-    return records
+    #records = [build_record(event) for event in raw_events]
+    return raw_events
     #test = sagre_another()
     #main_sagre = main_s()
     #print(main_sagre)

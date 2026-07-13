@@ -554,9 +554,9 @@ def main() -> None:
     csv_path = out_dir / "sagre_sagr_it.csv"
     json_path = out_dir / "sagre_sagr_it.json"
     save_json(all_events, json_path)
-    records = [build_record(asdict(event)) for event in all_events]
+    #records = [build_record(asdict(event)) for event in all_events]
 
-    return records
+    return all_events
 
 
 if __name__ == "__main__":
