@@ -15,6 +15,7 @@ import json
 import math
 import os
 import time
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -120,7 +121,9 @@ def ottimizza_dataset(payload: OttimizzaRequest, db: Session = Depends(get_db)):
     nome_sagra+citta+data_inizio, quindi rilanciare la stessa importazione
     non crea duplicati: aggiorna solo i campi cambiati.
     """
-    events = [e.model_dump() for e in payload.events]
+    # "id" è generato dal DB: va escluso dall'input, altrimenti l'upsert
+    # proverebbe a scrivere id=None sulla chiave primaria di righe esistenti.
+    events = [e.model_dump(exclude={"id"}) for e in payload.events]
 
     if not events:
         raise HTTPException(status_code=400, detail="La lista di eventi è vuota.")
@@ -147,7 +150,7 @@ def importa_da_file(
         raw_events = json.load(f)
 
     try:
-        events = [SagraEvent(**ev).model_dump() for ev in raw_events]
+        events = [SagraEvent(**ev).model_dump(exclude={"id"}) for ev in raw_events]
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=f"JSON non valido: {e}")
 
@@ -159,57 +162,70 @@ def importa_da_file(
     return OttimizzaResponse(stats=result["stats"], events=result["events"])
 
 
+def _to_evento_con_distanza(ev: SagraDB, distanza_km: Optional[float]) -> SagraEventWithDistance:
+    return SagraEventWithDistance(
+        id=ev.id,
+        nome_sagra=ev.nome_sagra,
+        data_inizio=ev.data_inizio,
+        data_fine=ev.data_fine,
+        citta=ev.citta,
+        provincia=ev.provincia,
+        lat=ev.lat,
+        leng=ev.leng,
+        locandina=ev.locandina,
+        link_pagina_ufficiale=ev.link_pagina_ufficiale,
+        category=ev.category,
+        descrizione=ev.descrizione,
+        ora_inizio=ev.ora_inizio,
+        distanza_km=distanza_km,
+    )
+
+
 @app.get("/sagre/vicine", response_model=VicineResponse)
 def sagre_vicine(
-    lat: float = Query(..., description="Latitudine dell'utente"),
-    leng: float = Query(..., description="Longitudine dell'utente"),
-    raggio_km: float = Query(..., gt=0, description="Raggio di ricerca in km"),
+    lat: Optional[float] = Query(None, description="Latitudine dell'utente (omettila insieme a leng per avere tutti gli eventi)"),
+    leng: Optional[float] = Query(None, description="Longitudine dell'utente (omettila insieme a lat per avere tutti gli eventi)"),
+    raggio_km: Optional[float] = Query(None, gt=0, description="Raggio di ricerca in km (obbligatorio se lat/leng sono forniti)"),
     limit: int = Query(100, gt=0, le=1000, description="Numero massimo di risultati"),
     db: Session = Depends(get_db),
 ):
-  
+    if (lat is None) != (leng is None):
+        raise HTTPException(status_code=400, detail="lat e leng vanno forniti insieme, oppure omessi entrambi.")
+
+    if lat is None:
+        eventi = db.query(SagraDB).limit(limit).all()
+        risultati = [_to_evento_con_distanza(ev, None) for ev in eventi]
+        return VicineResponse(
+            lat=None,
+            leng=None,
+            raggio_km=None,
+            totale_trovati=len(risultati),
+            risultati=risultati,
+        )
+
+    if raggio_km is None:
+        raise HTTPException(status_code=400, detail="raggio_km è obbligatorio quando lat e leng sono forniti.")
+
     delta_lat = raggio_km / KM_PER_DEGREE
     delta_leng = raggio_km / (KM_PER_DEGREE * max(0.1, abs(math.cos(math.radians(lat)))))
-    if lat is None and leng is None:
-        candidati = (
-            db.query(SagraDB)
-            .all()
+    candidati = (
+        db.query(SagraDB)
+        .filter(
+            SagraDB.lat.isnot(None),
+            SagraDB.leng.isnot(None),
+            and_(
+                SagraDB.lat.between(lat - delta_lat, lat + delta_lat),
+                SagraDB.leng.between(leng - delta_leng, leng + delta_leng),
+            ),
         )
-    else:
-        candidati = (
-            db.query(SagraDB)
-            .filter(
-                SagraDB.lat.isnot(None),
-                SagraDB.leng.isnot(None),
-                and_(
-                    SagraDB.lat.between(lat - delta_lat, lat + delta_lat),
-                    SagraDB.leng.between(leng - delta_leng, leng + delta_leng),
-                ),
-            )
-            .all()
-        )
+        .all()
+    )
 
     risultati = []
     for ev in candidati:
         dist = haversine_km(lat, leng, ev.lat, ev.leng)
         if dist <= raggio_km:
-            risultati.append(
-                SagraEventWithDistance(
-                    nome_sagra=ev.nome_sagra,
-                    data_inizio=ev.data_inizio,
-                    data_fine=ev.data_fine,
-                    citta=ev.citta,
-                    provincia=ev.provincia,
-                    lat=ev.lat,
-                    leng=ev.leng,
-                    locandina=ev.locandina,
-                    link_pagina_ufficiale=ev.link_pagina_ufficiale,
-                    category=ev.category,
-                    descrizione=ev.descrizione,
-                    ora_inizio=ev.ora_inizio,
-                    distanza_km=round(dist, 2),
-                )
-            )
+            risultati.append(_to_evento_con_distanza(ev, round(dist, 2)))
 
     risultati.sort(key=lambda r: r.distanza_km)
     risultati = risultati[:limit]
@@ -223,9 +239,39 @@ def sagre_vicine(
     )
 
 
+@app.get("/sagre/{sagra_id}", response_model=SagraEvent)
+def sagra_singola(sagra_id: int, db: Session = Depends(get_db)):
+    """Restituisce il dettaglio di un singolo evento dato il suo id (vedi campo "id" nelle liste)."""
+    ev = db.get(SagraDB, sagra_id)
+    if ev is None:
+        raise HTTPException(status_code=404, detail=f"Nessuna sagra trovata con id={sagra_id}.")
+
+    return SagraEvent(
+        id=ev.id,
+        nome_sagra=ev.nome_sagra,
+        data_inizio=ev.data_inizio,
+        data_fine=ev.data_fine,
+        citta=ev.citta,
+        provincia=ev.provincia,
+        lat=ev.lat,
+        leng=ev.leng,
+        locandina=ev.locandina,
+        link_pagina_ufficiale=ev.link_pagina_ufficiale,
+        category=ev.category,
+        descrizione=ev.descrizione,
+        ora_inizio=ev.ora_inizio,
+    )
+
+
 @app.get("/")
 def root():
     return {
         "message": "Sagre API attiva (MySQL)",
-        "endpoints": ["/sagre/ottimizza (POST)", "/sagre/importa-file (GET)", "/sagre/vicine (GET)", "/docs"],
+        "endpoints": [
+            "/sagre/ottimizza (POST)",
+            "/sagre/importa-file (GET)",
+            "/sagre/vicine (GET)",
+            "/sagre/{id} (GET)",
+            "/docs",
+        ],
     }

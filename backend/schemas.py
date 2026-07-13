@@ -3,6 +3,8 @@ from pydantic import BaseModel
 
 
 class SagraEvent(BaseModel):
+    # Valorizzato solo in output (letto dal DB); ignorato se presente in un payload di import.
+    id: Optional[int] = None
     nome_sagra: str
     data_inizio: Optional[str] = None
     data_fine: Optional[str] = None
@@ -18,7 +20,8 @@ class SagraEvent(BaseModel):
 
 
 class SagraEventWithDistance(SagraEvent):
-    distanza_km: float
+    # None quando /sagre/vicine è chiamata senza lat/leng (nessun filtro di distanza).
+    distanza_km: Optional[float] = None
 
 
 class OttimizzaRequest(BaseModel):
@@ -31,8 +34,8 @@ class OttimizzaResponse(BaseModel):
 
 
 class VicineResponse(BaseModel):
-    lat: float
-    leng: float
-    raggio_km: float
+    lat: Optional[float] = None
+    leng: Optional[float] = None
+    raggio_km: Optional[float] = None
     totale_trovati: int
     risultati: list[SagraEventWithDistance]
