@@ -186,7 +186,7 @@ def sagre_vicine(
     lat: Optional[float] = Query(None, description="Latitudine dell'utente (omettila insieme a leng per avere tutti gli eventi)"),
     leng: Optional[float] = Query(None, description="Longitudine dell'utente (omettila insieme a lat per avere tutti gli eventi)"),
     raggio_km: Optional[float] = Query(None, gt=0, description="Raggio di ricerca in km (obbligatorio se lat/leng sono forniti)"),
-    limit: int = Query(100, gt=0, le=1000, description="Numero massimo di risultati"),
+    limit: Optional[int] = Query(None, gt=0, le=1000, description="Numero massimo di risultati"),
     db: Session = Depends(get_db),
 ):
     if (lat is None) != (leng is None):
