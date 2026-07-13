@@ -163,26 +163,31 @@ def importa_da_file(
 def sagre_vicine(
     lat: float = Query(..., description="Latitudine dell'utente"),
     leng: float = Query(..., description="Longitudine dell'utente"),
-    raggio_km: float = Query(50, gt=0, description="Raggio di ricerca in km"),
+    raggio_km: float = Query(..., gt=0, description="Raggio di ricerca in km"),
     limit: int = Query(100, gt=0, le=1000, description="Numero massimo di risultati"),
     db: Session = Depends(get_db),
 ):
   
     delta_lat = raggio_km / KM_PER_DEGREE
     delta_leng = raggio_km / (KM_PER_DEGREE * max(0.1, abs(math.cos(math.radians(lat)))))
-
-    candidati = (
-        db.query(SagraDB)
-        .filter(
-            SagraDB.lat.isnot(None),
-            SagraDB.leng.isnot(None),
-            and_(
-                SagraDB.lat.between(lat - delta_lat, lat + delta_lat),
-                SagraDB.leng.between(leng - delta_leng, leng + delta_leng),
-            ),
+    if lat is None and leng is None:
+        candidati = (
+            db.query(SagraDB)
+            .all()
         )
-        .all()
-    )
+    else:
+        candidati = (
+            db.query(SagraDB)
+            .filter(
+                SagraDB.lat.isnot(None),
+                SagraDB.leng.isnot(None),
+                and_(
+                    SagraDB.lat.between(lat - delta_lat, lat + delta_lat),
+                    SagraDB.leng.between(leng - delta_leng, leng + delta_leng),
+                ),
+            )
+            .all()
+        )
 
     risultati = []
     for ev in candidati:
@@ -200,6 +205,8 @@ def sagre_vicine(
                     locandina=ev.locandina,
                     link_pagina_ufficiale=ev.link_pagina_ufficiale,
                     category=ev.category,
+                    descrizione=ev.descrizione,
+                    ora_inizio=ev.ora_inizio,
                     distanza_km=round(dist, 2),
                 )
             )

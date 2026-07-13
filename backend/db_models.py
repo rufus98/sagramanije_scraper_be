@@ -46,6 +46,10 @@ class SagraDB(Base):
     locandina = Column(Text, nullable=True)
     link_pagina_ufficiale = Column(Text, nullable=True)
     category = Column(String(100), nullable=True)
+    descrizione = Column(Text, nullable=True)
+    # Formato "HH:MM"; non tutte le fonti espongono un orario strutturato,
+    # quindi il campo resta spesso nullo (best-effort, vedi scraper).
+    ora_inizio = Column(String(20), nullable=True)
 
     __table_args__ = (
         # Indice composito: velocizza il pre-filtro per bounding box

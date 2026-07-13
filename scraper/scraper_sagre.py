@@ -369,10 +369,18 @@ def enrich_event_details(fetcher: Fetcher, event: Event) -> Event:
         return event
     soup = BeautifulSoup(html, "html.parser")
 
-    # descrizione: meta og:description è già un buon riassunto pulito
-    meta_desc = soup.find("meta", attrs={"property": "og:description"})
-    if meta_desc and meta_desc.get("content"):
-        event.description = norm_ws(meta_desc["content"])
+    # descrizione: il testo completo sta nel div "prose" del corpo pagina
+    # (l'intro in un <h2> + uno o più <p> a seguire). Il meta og:description
+    # è troncato a ~150 caratteri per i social e va usato solo come fallback.
+    prose = soup.find("div", class_="prose")
+    if prose:
+        desc = norm_ws(prose.get_text(" ", strip=True))
+        if desc:
+            event.description = desc
+    if not event.description:
+        meta_desc = soup.find("meta", attrs={"property": "og:description"})
+        if meta_desc and meta_desc.get("content"):
+            event.description = norm_ws(meta_desc["content"])
 
     # prezzo: cerca il blocco "Ingresso" seguito dal testo successivo
     text_all = norm_ws(soup.get_text(separator="|"))
@@ -466,54 +474,50 @@ def build_record(event: dict) -> dict:
 
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Scraper eventi/sagre da sagr.it")
-    parser.add_argument("--output-dir", default=".", help="Cartella di output (default: cartella corrente)")
-    parser.add_argument("--regions", default=None,
-                         help="Lista di slug regione separati da virgola per limitare lo scraping (es. piemonte,lazio)")
-    parser.add_argument("--delay", type=float, default=0.5, help="Secondi di attesa minimi tra le richieste (default 0.5)")
-    parser.add_argument("--workers", type=int, default=4, help="Richieste in parallelo per le pagine area (default 4)")
-    parser.add_argument("--details", action="store_true",
-                         help="Scarica anche la pagina di ogni singolo evento per dati extra (molto più lento)")
-    parser.add_argument("--details-workers", type=int, default=8, help="Richieste in parallelo per i dettagli evento")
-    parser.add_argument(
-        "--cat", default="sagra-gastronomica",
-        help=(
-            "Filtra per categoria (default: sagra-gastronomica, cioè solo le 'Sagra'). "
-            f"Valori noti: {', '.join(CATEGORY_FILTER_MAP)}. Usa 'all' per non filtrare."
-        ),
-    )
-    args = parser.parse_args()
+def scrape_events(
+    output_dir: str = "/app/output",
+    regions: str | None = None,
+    delay: float = 0.5,
+    workers: int = 4,
+    details: bool = False,
+    details_workers: int = 8,
+    cat: str = "sagra-gastronomica",
+    save: bool = True,
+) -> list[Event]:
+    """
+    Esegue lo scraping completo di sagr.it e restituisce la lista di eventi.
 
-    out_dir = Path('/app/output')
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    fetcher = Fetcher(delay=args.delay)
+    Se `details=True` scarica anche la pagina di ogni singolo evento (molto
+    più lento) per popolare descrizione, indirizzo, prezzo e coordinate GPS
+    (vedi enrich_event_details). Senza --details il campo `description`
+    resta sempre None.
+    """
+    fetcher = Fetcher(delay=delay)
 
     print("== 1/3 Recupero elenco regioni ==")
-    regions = get_regions(fetcher)
-    if args.regions:
-        wanted = {s.strip() for s in args.regions.split(",")}
-        regions = [r for r in regions if r["slug"] in wanted]
-    print(f"  Trovate {len(regions)} regioni.")
+    region_list = get_regions(fetcher)
+    if regions:
+        wanted = {s.strip() for s in regions.split(",")}
+        region_list = [r for r in region_list if r["slug"] in wanted]
+    print(f"  Trovate {len(region_list)} regioni.")
 
     print("== 2/3 Recupero aree/territori per regione ==")
     region_areas: list[tuple[dict, dict]] = []
-    for region in regions:
+    for region in region_list:
         areas = get_areas(fetcher, region)
         print(f"  {region['name']}: {len(areas)} aree")
         for area in areas:
             region_areas.append((region, area))
 
-    print(f"== 3/3 Recupero eventi per {len(region_areas)} aree (parallelo x{args.workers}) ==")
+    print(f"== 3/3 Recupero eventi per {len(region_areas)} aree (parallelo x{workers}) ==")
     all_events: list[Event] = []
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         # ogni worker ha bisogno di un proprio Fetcher per non condividere lo stato del rate-limiter
         # in modo scorretto tra thread; usiamo comunque un delay per thread.
-        fetchers = {i: Fetcher(delay=args.delay) for i in range(args.workers)}
+        fetchers = {i: Fetcher(delay=delay) for i in range(workers)}
         futures = {}
         for i, (region, area) in enumerate(region_areas):
-            f = fetchers[i % args.workers]
+            f = fetchers[i % workers]
             futures[pool.submit(get_events_for_area, f, region, area)] = (region, area)
         done = 0
         for fut in as_completed(futures):
@@ -534,12 +538,12 @@ def main() -> None:
     all_events = sorted(dedup.values(), key=lambda e: (e.region, e.area, e.date_start or "", e.title))
     print(f"\nTotale eventi unici trovati (tutte le categorie): {len(all_events)}")
 
-    if args.details:
-        print(f"== Extra: dettagli per {len(all_events)} eventi (parallelo x{args.details_workers}) ==")
-        with ThreadPoolExecutor(max_workers=args.details_workers) as pool:
-            fetchers = {i: Fetcher(delay=args.delay) for i in range(args.details_workers)}
+    if details:
+        print(f"== Extra: dettagli per {len(all_events)} eventi (parallelo x{details_workers}) ==")
+        with ThreadPoolExecutor(max_workers=details_workers) as pool:
+            fetchers = {i: Fetcher(delay=delay) for i in range(details_workers)}
             futures = {
-                pool.submit(enrich_event_details, fetchers[i % args.details_workers], ev): ev
+                pool.submit(enrich_event_details, fetchers[i % details_workers], ev): ev
                 for i, ev in enumerate(all_events)
             }
             done = 0
@@ -551,12 +555,43 @@ def main() -> None:
                     fut.result()
                 except Exception as exc:
                     print(f"  [ERRORE dettagli] {futures[fut].url}: {exc}")
-    csv_path = out_dir / "sagre_sagr_it.csv"
-    json_path = out_dir / "sagre_sagr_it.json"
-    save_json(all_events, json_path)
-    #records = [build_record(asdict(event)) for event in all_events]
+
+    if save:
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        save_json(all_events, out_dir / "sagre_sagr_it.json")
 
     return all_events
+
+
+def main() -> list[Event]:
+    parser = argparse.ArgumentParser(description="Scraper eventi/sagre da sagr.it")
+    parser.add_argument("--output-dir", default="/app/output", help="Cartella di output")
+    parser.add_argument("--regions", default=None,
+                         help="Lista di slug regione separati da virgola per limitare lo scraping (es. piemonte,lazio)")
+    parser.add_argument("--delay", type=float, default=0.5, help="Secondi di attesa minimi tra le richieste (default 0.5)")
+    parser.add_argument("--workers", type=int, default=4, help="Richieste in parallelo per le pagine area (default 4)")
+    parser.add_argument("--details", action="store_true",
+                         help="Scarica anche la pagina di ogni singolo evento per dati extra (molto più lento)")
+    parser.add_argument("--details-workers", type=int, default=8, help="Richieste in parallelo per i dettagli evento")
+    parser.add_argument(
+        "--cat", default="sagra-gastronomica",
+        help=(
+            "Filtra per categoria (default: sagra-gastronomica, cioè solo le 'Sagra'). "
+            f"Valori noti: {', '.join(CATEGORY_FILTER_MAP)}. Usa 'all' per non filtrare."
+        ),
+    )
+    args = parser.parse_args()
+
+    return scrape_events(
+        output_dir=args.output_dir,
+        regions=args.regions,
+        delay=args.delay,
+        workers=args.workers,
+        details=args.details,
+        details_workers=args.details_workers,
+        cat=args.cat,
+    )
 
 
 if __name__ == "__main__":

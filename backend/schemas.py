@@ -13,6 +13,8 @@ class SagraEvent(BaseModel):
     locandina: Optional[str] = None
     link_pagina_ufficiale: Optional[str] = None
     category: Optional[str] = None
+    descrizione: Optional[str] = None
+    ora_inizio: Optional[str] = None
 
 
 class SagraEventWithDistance(SagraEvent):
