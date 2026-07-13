@@ -9,7 +9,8 @@ API FastAPI per gestione sagre, con persistenza su MySQL.
 
 2. GET /sagre/vicine
    Data una coordinata (lat, leng) e un raggio in km, interroga il DB
-   e restituisce le sagre entro quel raggio, ordinate per distanza.
+   e restituisce le sagre entro quel raggio, ordinate per data
+   (dalla più vicina alla più lontana).
 """
 import json
 import math
@@ -193,7 +194,15 @@ def sagre_vicine(
         raise HTTPException(status_code=400, detail="lat e leng vanno forniti insieme, oppure omessi entrambi.")
 
     if lat is None:
-        eventi = db.query(SagraDB).limit(limit).all()
+        # data_inizio è in formato ISO "YYYY-MM-DD": l'ordinamento alfabetico
+        # coincide con quello cronologico. I valori nulli vanno in fondo
+        # (NULL è "più piccolo" in MySQL, quindi finirebbero primi senza questo).
+        eventi = (
+            db.query(SagraDB)
+            .order_by(SagraDB.data_inizio.is_(None), SagraDB.data_inizio)
+            .limit(limit)
+            .all()
+        )
         risultati = [_to_evento_con_distanza(ev, None) for ev in eventi]
         return VicineResponse(
             lat=None,
@@ -227,7 +236,10 @@ def sagre_vicine(
         if dist <= raggio_km:
             risultati.append(_to_evento_con_distanza(ev, round(dist, 2)))
 
-    risultati.sort(key=lambda r: r.distanza_km)
+    # Ordine per data più vicina -> più lontana (non più per distanza).
+    # data_inizio è "YYYY-MM-DD": l'ordine alfabetico coincide con quello
+    # cronologico; le date mancanti finiscono in fondo.
+    risultati.sort(key=lambda r: r.data_inizio)
     risultati = risultati[:limit]
 
     return VicineResponse(
