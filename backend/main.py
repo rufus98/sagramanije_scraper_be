@@ -117,7 +117,6 @@ def _importa_eventi(db: Session, events: list[dict]) -> dict:
     return result
 
 
-@app.post("/sagre/ottimizza", response_model=OttimizzaResponse)
 def ottimizza_dataset(payload: OttimizzaRequest, db: Session = Depends(get_db)):
     """
     Riceve una lista di eventi (anche con lat/leng nulli), geocodifica
@@ -138,7 +137,6 @@ def ottimizza_dataset(payload: OttimizzaRequest, db: Session = Depends(get_db)):
     return OttimizzaResponse(stats=result["stats"], events=result["events"])
 
 
-@app.get("/sagre/importa-file", response_model=OttimizzaResponse)
 def importa_da_file(
     path: str = Query(DEFAULT_IMPORT_PATH, description="Percorso del file JSON da importare (dentro al container)"),
     db: Session = Depends(get_db),
