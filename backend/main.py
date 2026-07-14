@@ -273,7 +273,7 @@ def sagre_vicine(
     # lontana): una sagra più lontana ma che inizia prima viene mostrata
     # prima di una più vicina che inizia dopo. La distanza è solo il criterio
     # secondario, a parità/vicinanza di data.
-    risultati.sort(key=lambda r: (r.data_inizio or "9999-99-99", r.distanza_km))
+    risultati.sort(key=lambda r: ( r.distanza_km))
     risultati = risultati[:limit]
 
     return VicineResponse(
