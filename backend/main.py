@@ -33,7 +33,7 @@ from schemas import OttimizzaRequest, OttimizzaResponse, VicineResponse, SagraEv
 
 # Percorso di default del file JSON da importare via GET /sagre/importa-file
 # (montato come volume nel container, vedi docker-compose.yml)
-DEFAULT_IMPORT_PATH = os.getenv("IMPORT_JSON_PATH", "/app/trovasagre2.0.json")
+DEFAULT_IMPORT_PATH = os.getenv("IMPORT_JSON_PATH", "/app/trovasagre2.0.bonificato.json")
 
 app = FastAPI(
     title="Sagre API",
@@ -150,15 +150,25 @@ def importa_da_file(
     with open(path, "r", encoding="utf-8") as f:
         raw_events = json.load(f)
 
-    try:
-        events = [SagraEvent(**ev).model_dump(exclude={"id"}) for ev in raw_events]
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"JSON non valido: {e}")
+    # Il file può arrivare da uno scraping con qualche record incompleto
+    # (es. citta non determinabile dalla fonte): un solo evento non valido
+    # non deve far fallire l'import di tutti gli altri, quindi si valida
+    # evento per evento e si scartano solo quelli malformati, segnalandoli.
+    events = []
+    scartati = []
+    for i, ev in enumerate(raw_events):
+        try:
+            events.append(SagraEvent(**ev).model_dump(exclude={"id"}))
+        except ValidationError as e:
+            scartati.append({"indice": i, "nome_sagra": ev.get("nome_sagra"), "errore": str(e)})
 
     if not events:
-        raise HTTPException(status_code=400, detail="Il file JSON non contiene eventi.")
+        raise HTTPException(status_code=400, detail="Il file JSON non contiene eventi validi.")
 
     result = _importa_eventi(db, events)
+    result["stats"]["eventi_scartati"] = len(scartati)
+    if scartati:
+        result["stats"]["dettaglio_scartati"] = scartati
 
     return OttimizzaResponse(stats=result["stats"], events=result["events"])
 
