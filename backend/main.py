@@ -259,8 +259,9 @@ def sagre_vicine(
         if dist <= raggio_km:
             risultati.append(_to_evento_con_distanza(ev, round(dist, 2)))
 
-    # Ordine per distanza: dal più vicino al più lontano.
-    risultati.sort(key=lambda r: r.distanza_km)
+    # Ordine per distanza (dal più vicino al più lontano), a parità di
+    # distanza per data_inizio (dalla più vicina alla più lontana).
+    risultati.sort(key=lambda r: (r.distanza_km, r.data_inizio or "9999-99-99"))
     risultati = risultati[:limit]
 
     return VicineResponse(
