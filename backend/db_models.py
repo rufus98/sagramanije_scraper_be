@@ -1,22 +1,26 @@
 """
-Modello ORM della tabella `sagre` su MySQL, allineato al formato:
+Modello ORM della tabella `sagre` su MySQL, allineato al formato di
+trovasagre2.0.bonificato.json:
 
 {
     "nome_sagra": "Festa dei Pescatori",
     "data_inizio": "2026-07-09",
     "data_fine": "2026-07-13",
-    "citta": "Santa Croce (trieste)",
+    "citta": "Santa Croce",
     "provincia": "TS",
-    "lat": 45.7384032,
-    "leng": 13.6889939,
+    "regione": "Friuli Venezia Giulia",
+    "lat": "45.7384032",
+    "leng": "13.6889939",
     "locandina": "https://...jpg",
     "link_pagina_ufficiale": "https://...",
-    "category": "sagra"
+    "category": "sagra",
+    "descrizione": "...",
+    "ora_inizio": "19:00"
 }
 """
 import hashlib
 
-from sqlalchemy import Column, Integer, String, Float, Text, Index
+from sqlalchemy import Column, Integer, String, Text
 
 from database import Base
 
@@ -41,8 +45,13 @@ class SagraDB(Base):
     data_fine = Column(String(20), nullable=True)
     citta = Column(String(150), nullable=False)
     provincia = Column(String(100), nullable=True, index=True)
-    lat = Column(Float, nullable=True, index=True)
-    leng = Column(Float, nullable=True, index=True)
+    regione = Column(String(100), nullable=True, index=True)
+    # Salvate come stringa (non Float): le fonti scraper le restituiscono in
+    # formato misto (numerico da trovasagre.com, stringa da sagr.it) e si
+    # preserva la rappresentazione originale. Il filtro/calcolo di distanza
+    # in /sagre/vicine le converte in float lato applicazione (vedi main.py).
+    lat = Column(String(50), nullable=True)
+    leng = Column(String(50), nullable=True)
     locandina = Column(Text, nullable=True)
     link_pagina_ufficiale = Column(Text, nullable=True)
     category = Column(String(100), nullable=True)
@@ -50,9 +59,3 @@ class SagraDB(Base):
     # Formato "HH:MM"; non tutte le fonti espongono un orario strutturato,
     # quindi il campo resta spesso nullo (best-effort, vedi scraper).
     ora_inizio = Column(String(20), nullable=True)
-
-    __table_args__ = (
-        # Indice composito: velocizza il pre-filtro per bounding box
-        # (range di lat/leng) usato prima del calcolo Haversine preciso.
-        Index("ix_sagre_lat_leng", "lat", "leng"),
-    )

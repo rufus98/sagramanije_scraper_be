@@ -13,7 +13,6 @@ API FastAPI per gestione sagre, con persistenza su MySQL.
    (dalla più vicina alla più lontana).
 """
 import json
-import math
 import os
 import time
 from typing import Optional
@@ -23,7 +22,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 
 from database import Base, engine, get_db
 from db_models import SagraDB, make_event_key
@@ -71,12 +69,6 @@ def on_startup():
             time.sleep(attesa_secondi)
 
     raise RuntimeError("Impossibile connettersi al database MySQL dopo diversi tentativi.")
-
-
-# Un grado di latitudine è ~111 km ovunque; per la longitudine dipende dal
-# coseno della latitudine, ma per un pre-filtro approssimato va benissimo
-# una stima larga (più larga del necessario, mai troppo stretta).
-KM_PER_DEGREE = 111.0
 
 
 def _importa_eventi(db: Session, events: list[dict]) -> dict:
@@ -181,6 +173,7 @@ def _to_evento_con_distanza(ev: SagraDB, distanza_km: Optional[float]) -> SagraE
         data_fine=ev.data_fine,
         citta=ev.citta,
         provincia=ev.provincia,
+        regione=ev.regione,
         lat=ev.lat,
         leng=ev.leng,
         locandina=ev.locandina,
@@ -225,24 +218,24 @@ def sagre_vicine(
     if raggio_km is None:
         raggio_km = 500000
 
-    delta_lat = raggio_km / KM_PER_DEGREE
-    delta_leng = raggio_km / (KM_PER_DEGREE * max(0.1, abs(math.cos(math.radians(lat)))))
+    # lat/leng sono salvate come stringa (vedi db_models.py): un pre-filtro
+    # per bounding box a livello SQL (BETWEEN) non è affidabile su una
+    # colonna testuale, quindi si recuperano tutti i candidati con
+    # coordinate presenti e si calcola la distanza esatta lato applicazione,
+    # castando a float (valori non numerici vengono scartati).
     candidati = (
         db.query(SagraDB)
-        .filter(
-            SagraDB.lat.isnot(None),
-            SagraDB.leng.isnot(None),
-            and_(
-                SagraDB.lat.between(lat - delta_lat, lat + delta_lat),
-                SagraDB.leng.between(leng - delta_leng, leng + delta_leng),
-            ),
-        )
+        .filter(SagraDB.lat.isnot(None), SagraDB.leng.isnot(None))
         .all()
     )
 
     risultati = []
     for ev in candidati:
-        dist = haversine_km(lat, leng, ev.lat, ev.leng)
+        try:
+            ev_lat, ev_leng = float(ev.lat), float(ev.leng)
+        except (TypeError, ValueError):
+            continue
+        dist = haversine_km(lat, leng, ev_lat, ev_leng)
         if dist <= raggio_km:
             risultati.append(_to_evento_con_distanza(ev, round(dist, 2)))
 
@@ -275,6 +268,7 @@ def sagra_singola(sagra_id: int, db: Session = Depends(get_db)):
         data_fine=ev.data_fine,
         citta=ev.citta,
         provincia=ev.provincia,
+        regione=ev.regione,
         lat=ev.lat,
         leng=ev.leng,
         locandina=ev.locandina,
