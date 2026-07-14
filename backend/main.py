@@ -82,6 +82,16 @@ def _importa_eventi(db: Session, events: list[dict]) -> dict:
     """
     result = enrich_events_with_coordinates(db, events)
 
+    # lat/leng sono salvate come stringa (colonna VARCHAR, vedi db_models.py)
+    # mentre a questo punto sono float (arrivano già convertite dallo schema
+    # Pydantic, che le espone come numeriche): si convertono esplicitamente
+    # invece di affidarsi alla coercizione implicita di MySQL.
+    for ev in result["events"]:
+        if ev.get("lat") is not None:
+            ev["lat"] = str(ev["lat"])
+        if ev.get("leng") is not None:
+            ev["leng"] = str(ev["leng"])
+
     # Traccia anche gli oggetti appena aggiunti in questo stesso batch: la
     # sessione ha autoflush=False, quindi una query sul DB non "vede" un
     # db.add() precedente ancora in sospeso. Senza questa cache, due eventi
@@ -259,9 +269,11 @@ def sagre_vicine(
         if dist <= raggio_km:
             risultati.append(_to_evento_con_distanza(ev, round(dist, 2)))
 
-    # Ordine per distanza (dal più vicino al più lontano), a parità di
-    # distanza per data_inizio (dalla più vicina alla più lontana).
-    risultati.sort(key=lambda r: (r.distanza_km, r.data_inizio or "9999-99-99"))
+    # L'ordine è guidato principalmente dalla data (dalla più vicina alla più
+    # lontana): una sagra più lontana ma che inizia prima viene mostrata
+    # prima di una più vicina che inizia dopo. La distanza è solo il criterio
+    # secondario, a parità/vicinanza di data.
+    risultati.sort(key=lambda r: (r.data_inizio or "9999-99-99", r.distanza_km))
     risultati = risultati[:limit]
 
     return VicineResponse(

@@ -86,12 +86,8 @@ def enrich_events_with_coordinates(db: Session, events: list[dict]) -> dict:
     for ev in events:
         if ev.get("lat") is None or ev.get("leng") is None:
             lat, leng = coords_map[(ev["citta"], ev.get("provincia"))]
-            # lat/leng sono salvate come stringa nella tabella "sagre" (vedi
-            # db_models.py): qui si converte il risultato numerico del
-            # geocoding per restare coerenti con gli eventi che arrivano già
-            # con coordinate proprie.
-            ev["lat"] = str(lat) if lat is not None else None
-            ev["leng"] = str(leng) if leng is not None else None
+            ev["lat"] = lat
+            ev["leng"] = leng
             if lat is None:
                 non_trovati += 1
             else:

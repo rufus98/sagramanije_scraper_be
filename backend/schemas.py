@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 
 class SagraEvent(BaseModel):
@@ -11,24 +11,17 @@ class SagraEvent(BaseModel):
     citta: str
     provincia: Optional[str] = None
     regione: Optional[str] = None
-    # Salvate come stringa (non float): le fonti scraper le restituiscono
-    # in formato misto (numerico da trovasagre.com, stringa da sagr.it) e
-    # si vuole preservare esattamente la rappresentazione originale.
-    lat: Optional[str] = None
-    leng: Optional[str] = None
+    # In risposta sono sempre numeriche: Pydantic converte automaticamente
+    # una stringa numerica (es. dal DB, dove sono salvate come stringa, vedi
+    # db_models.py) in float. In input accetta sia numero che stringa per lo
+    # stesso motivo.
+    lat: Optional[float] = None
+    leng: Optional[float] = None
     locandina: Optional[str] = None
     link_pagina_ufficiale: Optional[str] = None
     category: Optional[str] = None
     descrizione: Optional[str] = None
     ora_inizio: Optional[str] = None
-
-    @field_validator("lat", "leng", mode="before")
-    @classmethod
-    def _coordinata_come_stringa(cls, v):
-        """Converte lat/leng numerici (int/float) in stringa; lascia invariati None e stringhe già presenti."""
-        if isinstance(v, (int, float)):
-            return str(v)
-        return v
 
 
 class SagraEventWithDistance(SagraEvent):
