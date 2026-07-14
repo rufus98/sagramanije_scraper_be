@@ -32,25 +32,31 @@ def estrai_ora_inizio(*testi: str | None) -> str | None:
             return f"{int(ora):02d}:{minuti}"
     return None
 
-def merge_missing_keys(json_a,json_b, keys):
+def merge_missing_keys(json_a, json_b, keys):
     """
     Aggiunge in A gli elementi presenti in B ma non trovati
     confrontando solo le chiavi indicate.
+
+    Confronto O(n+m) tramite set di chiavi: il doppio ciclo annidato
+    precedente (O(n*m)) con decine di migliaia di elementi per lato
+    richiedeva centinaia di milioni di confronti ed era il vero collo
+    di bottiglia dello scraper.
     """
+    def chiave(item):
+        return tuple(item.get(k) for k in keys)
+
     result = deepcopy(json_a)
-    print('test inizio')
+    chiavi_esistenti = {chiave(item) for item in result}
 
+    aggiunti = 0
     for item_b in json_b:
-        trovato = False
-
-        for item_a in result:
-            if all(item_a.get(k) == item_b.get(k) for k in keys):
-                trovato = True
-                break
-
-        if not trovato:
+        k = chiave(item_b)
+        if k not in chiavi_esistenti:
             result.append(deepcopy(item_b))
-    print('test fine')
+            chiavi_esistenti.add(k)
+            aggiunti += 1
+
+    print(f"merge_missing_keys: {aggiunti} elementi aggiunti da B, {len(result)} totali")
     return result
 
 def get_coordinates(city_name, province_code=None, country="Italy"):
@@ -85,6 +91,95 @@ def get_coordinates(city_name, province_code=None, country="Italy"):
     _geocode_cache[query] = result
     time.sleep(1)  # Nominatim richiede max 1 richiesta al secondo
     return result
+
+def _provincia_da_address(address: dict) -> str | None:
+    """Estrae la sigla provincia (es. "CH") dal campo ISO3166-2-lvl6 di Nominatim ("IT-CH")."""
+    iso = address.get("ISO3166-2-lvl6") or ""
+    if iso.upper().startswith("IT-"):
+        return iso.split("-", 1)[1].upper()
+    return None
+
+_location_info_cache = {}
+
+def get_location_info(city_name, province_code=None, region=None, lat=None, lon=None, country="Italy"):
+    """
+    Completa provincia/regione (e coordinate se mancanti) via Nominatim
+    (addressdetails=1 espone anche "state" = regione e "ISO3166-2-lvl6" =
+    sigla provincia). Non sovrascrive mai un valore già presente in
+    ingresso: viene usato solo per riempire i buchi.
+
+    Cerca per nome città quando disponibile (query cacheata per città:
+    su decine di migliaia di eventi le città distinte sono poche centinaia,
+    quindi quasi tutte le chiamate finiscono in cache). Il reverse geocoding
+    per coordinate è usato solo come fallback quando manca il nome città:
+    cacheare per lat/lon esatte non aiuta perché ogni evento ha coordinate
+    leggermente diverse, quindi userebbe una chiamata Nominatim (1
+    richiesta/secondo) per praticamente ogni evento.
+    """
+    have_coords = lat is not None and lon is not None
+    if not city_name and not have_coords:
+        return {"lat": lat, "lon": lon, "provincia": province_code, "regione": region}
+
+    use_reverse = not city_name and have_coords
+    if use_reverse:
+        cache_key = f"rev:{round(float(lat), 3)},{round(float(lon), 3)}"
+    else:
+        parts = [city_name]
+        if province_code:
+            parts.append(province_code)
+        elif region:
+            parts.append(region)
+        parts.append(country)
+        cache_key = f"fwd:{', '.join(parts)}"
+
+    if cache_key in _location_info_cache:
+        found = _location_info_cache[cache_key]
+    else:
+        headers = {"User-Agent": "sagr-scraper/1.0 (tuaemail@esempio.com)"}
+        found = {"lat": None, "lon": None, "provincia": None, "regione": None}
+        try:
+            if use_reverse:
+                resp = requests.get(
+                    "https://nominatim.openstreetmap.org/reverse",
+                    params={"lat": lat, "lon": lon, "format": "jsonv2", "addressdetails": 1},
+                    headers=headers, timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if data and "address" in data:
+                    address = data["address"]
+                    found = {
+                        "lat": float(lat), "lon": float(lon),
+                        "provincia": _provincia_da_address(address),
+                        "regione": address.get("state"),
+                    }
+            else:
+                resp = requests.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": ", ".join(parts), "format": "jsonv2", "limit": 1, "addressdetails": 1},
+                    headers=headers, timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if data:
+                    address = data[0].get("address", {})
+                    found = {
+                        "lat": float(data[0]["lat"]), "lon": float(data[0]["lon"]),
+                        "provincia": _provincia_da_address(address),
+                        "regione": address.get("state"),
+                    }
+        except requests.RequestException as e:
+            print(f"Errore geocoding per '{city_name}': {e}")
+
+        _location_info_cache[cache_key] = found
+        time.sleep(1)  # Nominatim richiede max 1 richiesta al secondo
+
+    return {
+        "lat": lat if have_coords else found.get("lat"),
+        "lon": lon if have_coords else found.get("lon"),
+        "provincia": province_code or found.get("provincia"),
+        "regione": region or found.get("regione"),
+    }
 
 def fill_missing_coordinates(records):
     """
@@ -134,18 +229,23 @@ def build_trovasagre(event: dict) -> dict:
         city, province_estratta = extract_city_province(event.get("location"))
         province = province or province_estratta
 
-    lat = event.get("lat")
-    lon = event.get("lng")
-    if lat is None or lon is None:
-        lat, lon = get_coordinates(event.get("city") or city, event.get("province_code") or province)
+    citta = event.get("city") or city
+    provincia = event.get("province_code") or province
+    # trovasagre.com non espone la regione: la ricaviamo via geocoding
+    # (reverse se lat/lon sono già noti dall'API, altrimenti forward per città).
+    info = get_location_info(
+        citta, province_code=provincia, region=None,
+        lat=event.get("lat"), lon=event.get("lng"),
+    )
     return {
         "nome_sagra": event.get("title"),
         "data_inizio": event.get("date_start"),
         "data_fine": event.get("date_end"),
-        "citta": event.get("city") or city,
-        "provincia": event.get("province_code") or province,
-        "lat": lat,
-        "leng": lon,
+        "citta": citta,
+        "provincia": info["provincia"],
+        "regione": info["regione"],
+        "lat": info["lat"],
+        "leng": info["lon"],
         "locandina": f"https://trovasagre.com{flyer_path}" if flyer_path else None,
         "link_pagina_ufficiale": event.get("scrape_url"),
         "category":"sagra",
@@ -154,19 +254,26 @@ def build_trovasagre(event: dict) -> dict:
     }
 
 def build_sagr(event: dict) -> dict:
-    lat = event.get("lat")
-    lon = event.get("lon")
-    if lat is None or lon is None:
-        lat, lon = get_coordinates(event.get("comune"), event.get("region"))
-
+    # "regione" arriva sempre dalla navigazione del sito (vedi scraper_sagre.py);
+    # "provincia" (sigla, es. "CH") è estratta dall'indirizzo della pagina
+    # evento quando presente (solo con --details). Se manca, la ricaviamo
+    # via geocoding invece di usare la regione come fallback grezzo.
+    comune = event.get("comune")
+    regione = event.get("region")
+    info = get_location_info(
+        comune, province_code=event.get("provincia"), region=regione,
+        lat=event.get("lat"), lon=event.get("lon"),
+    )
+    print(event.get("title"))
     return {
         "nome_sagra": event.get("title"),
         "data_inizio": event.get("date_start"),
         "data_fine": event.get("date_end"),
-        "citta": event.get("comune"),
-        "provincia": event.get("region"),
-        "lat": lat,
-        "leng": lon,
+        "citta": comune,
+        "provincia": info["provincia"],
+        "regione": info["regione"],
+        "lat": info["lat"],
+        "leng": info["lon"],
         "locandina": None,
         "link_pagina_ufficiale": event.get("url"),
         "category":"sagra",

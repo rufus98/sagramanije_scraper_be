@@ -124,6 +124,7 @@ class Event:
     url: str
     description: Optional[str] = None
     indirizzo: Optional[str] = None
+    provincia: Optional[str] = None
     prezzo: Optional[str] = None
     lat: Optional[str] = None
     lon: Optional[str] = None
@@ -388,10 +389,25 @@ def enrich_event_details(fetcher: Fetcher, event: Event) -> Event:
     if m:
         event.prezzo = m.group(1).strip()
 
-    # indirizzo: testo dopo "Luogo"
-    m = re.search(r"Luogo\|([^|]+)\|([^|]+)", text_all)
-    if m:
-        event.indirizzo = norm_ws(m.group(2))
+    # Luogo: comune (+ provincia, quando il sito la mostra) nel blocco "Luogo".
+    # Non si può ricavare dal testo "flattenato" (get_text(separator="|")):
+    # quando manca lo <span> con la provincia, il nodo successivo nel DOM è
+    # il pulsante "Indicazioni", che finiva per essere scambiato per
+    # l'indirizzo. Si parsa quindi la struttura reale:
+    #   <p>Luogo</p>
+    #   <p>Comune<span class="...">Comune, XX, Italia</span></p>
+    luogo_label = soup.find(lambda tag: tag.name == "p" and tag.get_text(strip=True) == "Luogo")
+    if luogo_label:
+        addr_p = luogo_label.find_next_sibling("p")
+        if addr_p:
+            comune_text = norm_ws("".join(addr_p.find_all(string=True, recursive=False)))
+            dettaglio_span = addr_p.find("span")
+            dettaglio_text = norm_ws(dettaglio_span.get_text(" ", strip=True)) if dettaglio_span else None
+            event.indirizzo = dettaglio_text or comune_text or event.indirizzo
+
+            provincia_match = re.search(r",\s*([A-Za-z]{2})\s*,", dettaglio_text or "")
+            if provincia_match:
+                event.provincia = provincia_match.group(1).upper()
 
     # coordinate GPS dal link "Indicazioni" verso Google Maps
     dir_link = soup.find("a", href=re.compile(r"destination=-?\d+\.\d+,-?\d+\.\d+"))
