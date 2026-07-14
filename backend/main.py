@@ -247,7 +247,7 @@ def sagre_vicine(
         )
 
     if raggio_km is None:
-        raggio_km = 110
+        raggio_km = 70
 
     # lat/leng sono salvate come stringa (vedi db_models.py): un pre-filtro
     # per bounding box a livello SQL (BETWEEN) non è affidabile su una
