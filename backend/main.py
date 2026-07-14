@@ -9,12 +9,13 @@ API FastAPI per gestione sagre, con persistenza su MySQL.
 
 2. GET /sagre/vicine
    Data una coordinata (lat, leng) e un raggio in km, interroga il DB
-   e restituisce le sagre entro quel raggio, ordinate per data
+   e restituisce le sagre entro quel raggio, ordinate per distanza
    (dalla più vicina alla più lontana).
 """
 import json
 import os
 import time
+from datetime import date
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends
@@ -22,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 
 from database import Base, engine, get_db
 from db_models import SagraDB, make_event_key
@@ -185,23 +187,42 @@ def _to_evento_con_distanza(ev: SagraDB, distanza_km: Optional[float]) -> SagraE
     )
 
 
+def _filtro_solo_attive(query, oggi: str):
+    """
+    Esclude le sagre già concluse, mantenendo quelle in corso (oggi tra
+    data_inizio e data_fine) e quelle future (data_inizio nel futuro): basta
+    verificare che data_fine (o, in mancanza, data_inizio) non sia già
+    passata. Le date sono stringhe ISO "YYYY-MM-DD", quindi il confronto
+    lessicografico coincide con quello cronologico. Un evento senza alcuna
+    data nota viene comunque incluso (non si può stabilire che sia passato).
+    """
+    riferimento = func.coalesce(SagraDB.data_fine, SagraDB.data_inizio)
+    return query.filter(or_(riferimento.is_(None), riferimento >= oggi))
+
+
 @app.get("/sagre/vicine", response_model=VicineResponse)
 def sagre_vicine(
     lat: Optional[float] = Query(None, description="Latitudine dell'utente (omettila insieme a leng per avere tutti gli eventi)"),
     leng: Optional[float] = Query(None, description="Longitudine dell'utente (omettila insieme a lat per avere tutti gli eventi)"),
     raggio_km: Optional[float] = Query(None, gt=0, description="Raggio di ricerca in km (obbligatorio se lat/leng sono forniti)"),
     limit: Optional[int] = Query(None, gt=0, le=1000, description="Numero massimo di risultati"),
+    solo_attive: bool = Query(True, description="Se True (default), esclude le sagre già concluse: mostra solo quelle in corso o future"),
     db: Session = Depends(get_db),
 ):
     if (lat is None) != (leng is None):
         raise HTTPException(status_code=400, detail="lat e leng vanno forniti insieme, oppure omessi entrambi.")
 
+    oggi = date.today().isoformat()
+
     if lat is None:
         # data_inizio è in formato ISO "YYYY-MM-DD": l'ordinamento alfabetico
         # coincide con quello cronologico. I valori nulli vanno in fondo
         # (NULL è "più piccolo" in MySQL, quindi finirebbero primi senza questo).
+        query = db.query(SagraDB)
+        if solo_attive:
+            query = _filtro_solo_attive(query, oggi)
         eventi = (
-            db.query(SagraDB)
+            query
             .order_by(SagraDB.data_inizio.is_(None), SagraDB.data_inizio)
             .limit(limit)
             .all()
@@ -223,11 +244,10 @@ def sagre_vicine(
     # colonna testuale, quindi si recuperano tutti i candidati con
     # coordinate presenti e si calcola la distanza esatta lato applicazione,
     # castando a float (valori non numerici vengono scartati).
-    candidati = (
-        db.query(SagraDB)
-        .filter(SagraDB.lat.isnot(None), SagraDB.leng.isnot(None))
-        .all()
-    )
+    query = db.query(SagraDB).filter(SagraDB.lat.isnot(None), SagraDB.leng.isnot(None))
+    if solo_attive:
+        query = _filtro_solo_attive(query, oggi)
+    candidati = query.all()
 
     risultati = []
     for ev in candidati:
@@ -239,10 +259,8 @@ def sagre_vicine(
         if dist <= raggio_km:
             risultati.append(_to_evento_con_distanza(ev, round(dist, 2)))
 
-    # Ordine per data più vicina -> più lontana (non più per distanza).
-    # data_inizio è "YYYY-MM-DD": l'ordine alfabetico coincide con quello
-    # cronologico; le date mancanti finiscono in fondo.
-    risultati.sort(key=lambda r: r.data_inizio or "9999-99-99")
+    # Ordine per distanza: dal più vicino al più lontano.
+    risultati.sort(key=lambda r: r.distanza_km)
     risultati = risultati[:limit]
 
     return VicineResponse(
