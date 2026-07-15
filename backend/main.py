@@ -13,9 +13,10 @@ API FastAPI per gestione sagre, con persistenza su MySQL.
    (dalla più vicina alla più lontana).
 """
 import json
+from operator import and_
 import os
 import time
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends
@@ -24,7 +25,6 @@ from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
-
 from database import Base, engine, get_db
 from db_models import SagraDB, make_event_key
 from geocoding import enrich_events_with_coordinates
@@ -166,8 +166,27 @@ def _filtro_solo_attive(query, oggi: str):
     lessicografico coincide con quello cronologico. Un evento senza alcuna
     data nota viene comunque incluso (non si può stabilire che sia passato).
     """
-    riferimento = func.coalesce(SagraDB.data_fine, SagraDB.data_inizio)
-    return query.filter(or_(riferimento.is_(None), riferimento >= oggi))
+    data_oggi_dt = datetime.strptime(oggi, "%Y-%m-%d")
+    
+    # Aggiungiamo circa 61 giorni (equivalenti a 2 mesi) alla data attuale
+    due_mesi_futuro_dt = data_oggi_dt + timedelta(days=61)
+    due_mesi_futuro = due_mesi_futuro_dt.strftime("%Y-%m-%d")
+
+    # 2. Riferimento per capire se l'evento è già concluso
+    riferimento_fine = func.coalesce(SagraDB.data_fine, SagraDB.data_inizio)
+    
+    # 3. Riferimento per capire quando l'evento inizia
+    riferimento_inizio = func.coalesce(SagraDB.data_inizio, SagraDB.data_fine)
+
+    return query.filter(
+        or_(
+            and_(SagraDB.data_inizio.is_(None), SagraDB.data_fine.is_(None)),
+            and_(
+                riferimento_fine >= oggi,
+                riferimento_inizio <= due_mesi_futuro
+            )
+        )
+    )
 
 
 @app.get("/sagre/vicine", response_model=VicineResponse)
