@@ -137,44 +137,6 @@ def ottimizza_dataset(payload: OttimizzaRequest, db: Session = Depends(get_db)):
     return OttimizzaResponse(stats=result["stats"], events=result["events"])
 
 
-def importa_da_file(
-    path: str = Query(DEFAULT_IMPORT_PATH, description="Percorso del file JSON da importare (dentro al container)"),
-    db: Session = Depends(get_db),
-):
-    """
-    Legge un file JSON di eventi dal filesystem (es. l'output dello
-    scraper) e lo importa nel DB con la stessa logica di /sagre/ottimizza
-    (geocoding + upsert).
-    """
-    if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail=f"File non trovato: {path}")
-
-    with open(path, "r", encoding="utf-8") as f:
-        raw_events = json.load(f)
-
-    # Il file può arrivare da uno scraping con qualche record incompleto
-    # (es. citta non determinabile dalla fonte): un solo evento non valido
-    # non deve far fallire l'import di tutti gli altri, quindi si valida
-    # evento per evento e si scartano solo quelli malformati, segnalandoli.
-    events = []
-    scartati = []
-    for i, ev in enumerate(raw_events):
-        try:
-            events.append(SagraEvent(**ev).model_dump(exclude={"id"}))
-        except ValidationError as e:
-            scartati.append({"indice": i, "nome_sagra": ev.get("nome_sagra"), "errore": str(e)})
-
-    if not events:
-        raise HTTPException(status_code=400, detail="Il file JSON non contiene eventi validi.")
-
-    result = _importa_eventi(db, events)
-    result["stats"]["eventi_scartati"] = len(scartati)
-    if scartati:
-        result["stats"]["dettaglio_scartati"] = scartati
-
-    return OttimizzaResponse(stats=result["stats"], events=result["events"])
-
-
 def _to_evento_con_distanza(ev: SagraDB, distanza_km: Optional[float]) -> SagraEventWithDistance:
     return SagraEventWithDistance(
         id=ev.id,
