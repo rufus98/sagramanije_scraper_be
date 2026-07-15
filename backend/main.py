@@ -145,7 +145,7 @@ def ottimizza_dataset(payload: OttimizzaRequest, db: Session = Depends(get_db)):
 
     return OttimizzaResponse(stats=result["stats"], events=result["events"])
 
-
+@app.get("/sagre/importa-da-file", response_model=OttimizzaResponse)
 def importa_da_file(
     path: str = Query(DEFAULT_IMPORT_PATH, description="Percorso del file JSON da importare (dentro al container)"),
     db: Session = Depends(get_db),
