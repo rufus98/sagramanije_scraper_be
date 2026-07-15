@@ -27,11 +27,13 @@ services:
       MYSQL_USER: ${MYSQL_USER:-sagre_user}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-sagre_pass}
       IMPORT_JSON_PATH: /app/scraper_output/trovasagre2.0.json
+      IMPORT_SAGREAUTENTICHE_PATH: /app/sagreautentiche.json
     ports:
       - "8010:8010"
     volumes:
       - .:/app  # utile in sviluppo: riflette le modifiche al codice senza rebuild
       - ../scraper/output:/app/scraper_output:ro  # output dello scraper, letto da GET /sagre/importa-file
+      - ../scraper/sagreautentiche.json:/app/sagreautentiche.json:ro  # letto da GET /sagre/importa-sagreautentiche
     depends_on:
       db:
         condition: service_healthy

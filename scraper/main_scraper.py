@@ -9,7 +9,7 @@ import requests
 import pandas as pd
 from urllib.parse import urljoin, urlparse
 import urllib.robotparser
-from scraper_sagre import scrape_events as scrape_sagr
+from scraper_sagre import scrape_events as scrape_sagr, parse_it_date_range
 from scraper import main as main_trovasagre
 
 _geocode_cache = {}
@@ -118,6 +118,11 @@ def get_location_info(city_name, province_code=None, region=None, lat=None, lon=
     """
     have_coords = lat is not None and lon is not None
     if not city_name and not have_coords:
+        return {"lat": lat, "lon": lon, "provincia": province_code, "regione": region}
+    if province_code and region and have_coords:
+        # Già tutto noto dalla fonte (es. sagreautentiche.json, che espone
+        # citta/provincia/regione/coordinate dentro "geo"): nessuna chiamata
+        # Nominatim necessaria.
         return {"lat": lat, "lon": lon, "provincia": province_code, "regione": region}
 
     use_reverse = not city_name and have_coords
@@ -231,12 +236,21 @@ def build_trovasagre(event: dict) -> dict:
 
     citta = event.get("city") or city
     provincia = event.get("province_code") or province
-    # trovasagre.com non espone la regione: la ricaviamo via geocoding
-    # (reverse se lat/lon sono già noti dall'API, altrimenti forward per città).
+    # trovasagre.com non espone la regione (quindi qui è sempre None e va
+    # ricavata via geocoding); altre fonti adattate a questo stesso formato
+    # (es. sagreautentiche.json, vedi importa_da_sagreautentiche) la
+    # forniscono già: se presente non si fa nessuna chiamata Nominatim
+    # (vedi lo short-circuit in get_location_info).
     info = get_location_info(
-        citta, province_code=provincia, region=None,
+        citta, province_code=provincia, region=event.get("regione"),
         lat=event.get("lat"), lon=event.get("lng"),
     )
+    if flyer_path and flyer_path.startswith("http"):
+        locandina = flyer_path
+    elif flyer_path:
+        locandina = f"https://trovasagre.com{flyer_path}"
+    else:
+        locandina = None
     return {
         "nome_sagra": event.get("title"),
         "data_inizio": event.get("date_start"),
@@ -246,7 +260,7 @@ def build_trovasagre(event: dict) -> dict:
         "regione": info["regione"],
         "lat": info["lat"],
         "leng": info["lon"],
-        "locandina": f"https://trovasagre.com{flyer_path}" if flyer_path else None,
+        "locandina": locandina,
         "link_pagina_ufficiale": event.get("scrape_url"),
         "category":"sagra",
         "descrizione": event.get("description"),
@@ -305,8 +319,6 @@ def main():
     unito = merge_missing_keys(trovasagre, main_sagre, ["nome_sagra", "citta", "provincia"])
     with open('/app/output/trovasagre2.0.json', "w", encoding="utf-8") as f:
         json.dump(unito, f, ensure_ascii=False, indent=2)
-    
-    
 
     print(f"Salvato in {'/app/output/trovasagre2.0.json'} ({len(unito)} record)")
 

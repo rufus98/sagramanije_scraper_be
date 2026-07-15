@@ -12,12 +12,17 @@ API FastAPI per gestione sagre, con persistenza su MySQL.
    e restituisce le sagre entro quel raggio, ordinate per distanza
    (dalla più vicina alla più lontana).
 """
+import html
 import json
 import os
+import re
 import time
+import unicodedata
 from datetime import date
 from typing import Optional
 
+import requests
+from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
@@ -30,10 +35,14 @@ from db_models import SagraDB, make_event_key
 from geocoding import enrich_events_with_coordinates
 from distance import haversine_km
 from schemas import OttimizzaRequest, OttimizzaResponse, VicineResponse, SagraEventWithDistance, SagraEvent
-
-# Percorso di default del file JSON da importare via GET /sagre/importa-file
-# (montato come volume nel container, vedi docker-compose.yml)
+from functions import build_trovasagre, parse_it_date_range,_estrai_descrizione_da_permalink,_normalizza_per_confronto, _sagra_gia_presente
+# Percorsi di default dei file JSON da importare (montati come volume nel
+# container, vedi docker-compose.yml). Due variabili d'ambiente DIVERSE:
+# usare la stessa per entrambe farebbe leggere a /sagre/importa-sagreautentiche
+# il file sbagliato (trovasagre2.0.json, che non ha i campi "title"/"geo"
+# attesi da build_trovasagre) ogni volta che IMPORT_JSON_PATH è impostata.
 DEFAULT_IMPORT_PATH = os.getenv("IMPORT_JSON_PATH", "/app/trovasagre2.0.bonificato.json")
+DEFAULT_IMPORT_PATH_2 = os.getenv("IMPORT_SAGREAUTENTICHE_PATH", "/app/sagreautentiche.json")
 
 app = FastAPI(
     title="Sagre API",
@@ -282,6 +291,57 @@ def sagre_vicine(
         risultati=risultati,
     )
 
+@app.get("/sagre/importa-sagreautentiche", response_model=OttimizzaResponse)
+def importa_da_sagreautentiche(
+    path: str = Query(DEFAULT_IMPORT_PATH_2, description="Percorso di sagreautentiche.json da importare (dentro al container)"),
+    db: Session = Depends(get_db),
+):
+    """
+    Legge sagreautentiche.json, lo riformatta nello schema condiviso
+    (build_trovasagre) e per ogni evento: se non è già presente in DB
+    (confronto su nome_sagra/data_inizio/data_fine/citta/provincia/regione)
+    scarica la sua pagina ufficiale per estrarne la descrizione e lo importa;
+    se è già presente lo salta senza toccarlo.
+    """
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail=f"File non trovato: {path}")
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw_events = json.load(f)
+
+    trovasagre = [build_trovasagre(event) for event in raw_events]
+
+    nuovi = []
+    gia_presenti = 0
+    for ev in trovasagre:
+        if _sagra_gia_presente(db, ev):
+            gia_presenti += 1
+            continue
+        ev["descrizione"] = _estrai_descrizione_da_permalink(ev.get("link_pagina_ufficiale")) or ev.get("descrizione")
+        nuovi.append(ev)
+
+    # Un evento malformato (es. citta non determinabile dalla fonte) non
+    # deve far fallire l'import di tutti gli altri: si valida evento per
+    # evento e si scartano solo quelli non validi, segnalandoli.
+    events_validi = []
+    scartati = []
+    for ev in nuovi:
+        try:
+            events_validi.append(SagraEvent(**ev).model_dump(exclude={"id"}))
+        except ValidationError as e:
+            scartati.append({"nome_sagra": ev.get("nome_sagra"), "errore": str(e)})
+
+    result = {"stats": {}, "events": []}
+    if events_validi:
+        result = _importa_eventi(db, events_validi)
+
+    result["stats"]["eventi_totali_file"] = len(trovasagre)
+    result["stats"]["eventi_gia_presenti_saltati"] = gia_presenti
+    result["stats"]["eventi_scartati"] = len(scartati)
+    if scartati:
+        result["stats"]["dettaglio_scartati"] = scartati
+
+    return OttimizzaResponse(stats=result["stats"], events=result["events"])
 
 @app.get("/sagre/{sagra_id}", response_model=SagraEvent)
 def sagra_singola(sagra_id: int, db: Session = Depends(get_db)):
@@ -315,6 +375,7 @@ def root():
         "endpoints": [
             "/sagre/ottimizza (POST)",
             "/sagre/importa-file (GET)",
+            "/sagre/importa-sagreautentiche (GET)",
             "/sagre/vicine (GET)",
             "/sagre/{id} (GET)",
             "/docs",
