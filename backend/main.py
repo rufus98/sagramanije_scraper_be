@@ -203,7 +203,7 @@ def sagre_vicine(
 
     oggi = date.today().isoformat()
 
-    if lat is None:
+    if lat is None and leng is None:
         # data_inizio è in formato ISO "YYYY-MM-DD": l'ordinamento alfabetico
         # coincide con quello cronologico. I valori nulli vanno in fondo
         # (NULL è "più piccolo" in MySQL, quindi finirebbero primi senza questo).
