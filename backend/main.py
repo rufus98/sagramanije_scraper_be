@@ -210,8 +210,9 @@ def sagre_vicine(
         query = db.query(SagraDB)
         if solo_attive:
             query = _filtro_solo_attive(query, oggi)
+        query_all = query.filter(SagraDB.regione == "Abruzzo")
         eventi = (
-            query
+            query_all
             .order_by(SagraDB.data_inizio.is_(None), SagraDB.data_inizio)
             .limit(limit)
             .all()
@@ -236,7 +237,9 @@ def sagre_vicine(
     query = db.query(SagraDB).filter(SagraDB.lat.isnot(None), SagraDB.leng.isnot(None))
     if solo_attive:
         query = _filtro_solo_attive(query, oggi)
-    candidati = query.all()
+    
+    query_all = query.filter(SagraDB.regione == "Abruzzo")
+    candidati = query_all.all()
 
     risultati = []
     for ev in candidati:
