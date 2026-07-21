@@ -20,7 +20,8 @@ trovasagre2.0.bonificato.json:
 """
 import hashlib
 
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, Date, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import relationship
 
 from database import Base
 
@@ -59,3 +60,21 @@ class SagraDB(Base):
     # Formato "HH:MM"; non tutte le fonti espongono un orario strutturato,
     # quindi il campo resta spesso nullo (best-effort, vedi scraper).
     ora_inizio = Column(String(20), nullable=True)
+
+    attivita = relationship("AttivitaDB", back_populates="sagra", cascade="all, delete-orphan")
+
+
+class AttivitaDB(Base):
+    """Un'attività (spettacolo, laboratorio, concerto, ...) legata a una sagra."""
+    __tablename__ = "attivita"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    id_sagra = Column(Integer, ForeignKey("sagre.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    giorno = Column(Date, nullable=True)
+    ora_inizio = Column(String(20), nullable=True)  # "HH:MM"
+    ora_fine = Column(String(20), nullable=True)  # "HH:MM"
+    titolo = Column(String(255), nullable=False)
+    descrizione = Column(Text, nullable=True)
+
+    sagra = relationship("SagraDB", back_populates="attivita")
