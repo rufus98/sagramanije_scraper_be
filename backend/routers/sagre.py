@@ -2,10 +2,11 @@
 Rotte HTTP per le sagre. Layer sottile: valida input/query params e delega
 la logica a services/sagre_service.py e services/attivita_service.py.
 """
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import Integer, case, cast, func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -53,24 +54,20 @@ def sagre_vicine(
 
     oggi = date.today().isoformat()
 
+    #se non vengono presi ne latitudine e ne longitudine
     if lat is None and leng is None:
-        # data_inizio è in formato ISO "YYYY-MM-DD": l'ordinamento alfabetico
-        # coincide con quello cronologico. I valori nulli vanno in fondo
-        # (NULL è "più piccolo" in MySQL, quindi finirebbero primi senza questo).
         query = db.query(SagraDB)
         if solo_attive:
             query = sagre_service.filtro_solo_attive(query, oggi)
-        # NOTA: filtro fisso sulla regione Abruzzo, presente prima della
-        # riorganizzazione (comportamento preservato, non l'ho aggiunto io —
-        # probabile residuo di debug, valuta se rimuoverlo).
+        giorni_a_inizio = case(
+                (func.now() < SagraDB.data_inizio, func.datediff(SagraDB.data_inizio, func.now())),
+                else_=0
+            ).label("giorni_mancanti")
+        query = query.add_columns(giorni_a_inizio)
         query_all = query.filter(SagraDB.regione == "Abruzzo")
-        eventi = (
-            query_all
-            .order_by(SagraDB.data_inizio.is_(None), SagraDB.data_inizio)
-            .limit(limit)
-            .all()
-        )
-        risultati = [sagre_service.evento_con_distanza(ev, None) for ev in eventi]
+        eventi = query_all.all()
+
+        risultati = [sagre_service.evento_con_distanza(ev, None, giorni_a_inizio) for ev,giorni_a_inizio in eventi]
         return VicineResponse(
             lat=None,
             leng=None,
@@ -78,38 +75,33 @@ def sagre_vicine(
             totale_trovati=len(risultati),
             risultati=risultati,
         )
-
+    #processo standard
     if raggio_km is None:
         raggio_km = 70
 
-    # lat/leng sono salvate come stringa (vedi db_models.py): un pre-filtro
-    # per bounding box a livello SQL (BETWEEN) non è affidabile su una
-    # colonna testuale, quindi si recuperano tutti i candidati con
-    # coordinate presenti e si calcola la distanza esatta lato applicazione,
-    # castando a float (valori non numerici vengono scartati).
     query = db.query(SagraDB).filter(SagraDB.lat.isnot(None), SagraDB.leng.isnot(None))
+
     if solo_attive:
         query = sagre_service.filtro_solo_attive(query, oggi)
 
-    # NOTA: stesso filtro fisso su "Abruzzo", comportamento preservato.
+    giorni_a_inizio = case(
+            (func.now() < SagraDB.data_inizio, func.datediff(SagraDB.data_inizio, func.now())),
+            else_=0
+        ).label("giorni_mancanti")
+    query = query.add_columns(giorni_a_inizio)
+    
     query_all = query.filter(SagraDB.regione == "Abruzzo")
     candidati = query_all.all()
-
     risultati = []
-    for ev in candidati:
+    for ev,giorni_a_inizio in candidati:
         try:
             ev_lat, ev_leng = float(ev.lat), float(ev.leng)
         except (TypeError, ValueError):
             continue
         dist = haversine_km(lat, leng, ev_lat, ev_leng)
         if dist <= raggio_km:
-            risultati.append(sagre_service.evento_con_distanza(ev, round(dist, 2)))
-
-    # L'ordine è guidato principalmente dalla data (dalla più vicina alla più
-    # lontana): una sagra più lontana ma che inizia prima viene mostrata
-    # prima di una più vicina che inizia dopo. La distanza è solo il criterio
-    # secondario, a parità/vicinanza di data.
-    risultati.sort(key=lambda r: (r.distanza_km))
+            risultati.append(sagre_service.evento_con_distanza(ev, round(dist, 2),giorni_a_inizio))
+    risultati.sort(key=lambda r: (r.giorni, r.distanza_km))
     risultati = risultati[:limit]
 
     return VicineResponse(

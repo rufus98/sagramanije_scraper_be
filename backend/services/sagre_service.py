@@ -58,7 +58,8 @@ def importa_eventi(db: Session, events: list[dict]) -> dict:
     return result
 
 
-def evento_con_distanza(ev: SagraDB, distanza_km: Optional[float]) -> SagraEventWithDistance:
+def evento_con_distanza(ev: SagraDB, distanza_km: Optional[float], giorni: Optional[int]) -> SagraEventWithDistance:
+    print(ev)
     return SagraEventWithDistance(
         id=ev.id,
         nome_sagra=ev.nome_sagra,
@@ -75,6 +76,7 @@ def evento_con_distanza(ev: SagraDB, distanza_km: Optional[float]) -> SagraEvent
         descrizione=ev.descrizione,
         ora_inizio=ev.ora_inizio,
         distanza_km=distanza_km,
+        giorni = giorni
     )
 
 

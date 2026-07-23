@@ -47,6 +47,7 @@ class SagraEvent(BaseModel):
 class SagraEventWithDistance(SagraEvent):
     # None quando /sagre/vicine è chiamata senza lat/leng (nessun filtro di distanza).
     distanza_km: Optional[float] = None
+    giorni:Optional[int]= None
 
 
 class OttimizzaRequest(BaseModel):
