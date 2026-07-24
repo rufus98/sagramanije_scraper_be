@@ -1,7 +1,9 @@
 """
 Calcolo distanza in linea d'aria tra due coordinate (formula di Haversine).
 """
-from math import radians, sin, cos, sqrt, atan2
+from math import radians, sin, cos, sqrt, atan2, tan
+import requests
+import time
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -15,4 +17,4 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = sin(d_phi / 2) ** 2 + cos(phi1) * cos(phi2) * sin(d_lambda / 2) ** 2
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
 
-    return R * c
+    return R * c * 1.4
