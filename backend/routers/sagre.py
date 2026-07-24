@@ -76,8 +76,8 @@ def sagre_vicine(
             risultati=risultati,
         )
     #processo standard
-    if raggio_km is None:
-        raggio_km = 70
+    
+    #    raggio_km = 400
 
     query = db.query(SagraDB).filter(SagraDB.lat.isnot(None), SagraDB.leng.isnot(None))
 
@@ -99,7 +99,10 @@ def sagre_vicine(
         except (TypeError, ValueError):
             continue
         dist = haversine_km(lat, leng, ev_lat, ev_leng)
-        if dist <= raggio_km:
+        if raggio_km is not None:
+            if dist <= raggio_km:
+                risultati.append(sagre_service.evento_con_distanza(ev, round(dist, 2),giorni_a_inizio))
+        else: 
             risultati.append(sagre_service.evento_con_distanza(ev, round(dist, 2),giorni_a_inizio))
     risultati.sort(key=lambda r: (r.giorni, r.distanza_km))
     risultati = risultati[:limit]
