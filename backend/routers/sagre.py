@@ -68,6 +68,8 @@ def sagre_vicine(
         eventi = query_all.all()
 
         risultati = [sagre_service.evento_con_distanza(ev, None, giorni_a_inizio) for ev,giorni_a_inizio in eventi]
+        risultati.sort(key=lambda r: (r.giorni))
+
         return VicineResponse(
             lat=None,
             leng=None,
