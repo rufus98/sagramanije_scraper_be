@@ -82,16 +82,16 @@ def evento_con_distanza(ev: SagraDB, distanza_km: Optional[float], giorni: Optio
 def filtro_solo_attive(query, oggi: str):
     """
     Esclude le sagre già concluse, mantenendo quelle in corso (oggi tra
-    data_inizio e data_fine) e quelle che iniziano entro i prossimi ~2 mesi.
+    data_inizio e data_fine) e quelle che iniziano entro il prossimo mese.
     Le date sono stringhe ISO "YYYY-MM-DD", quindi il confronto
     lessicografico coincide con quello cronologico. Un evento senza alcuna
     data nota viene comunque incluso (non si può stabilire che sia passato).
     """
     data_oggi_dt = datetime.strptime(oggi, "%Y-%m-%d")
 
-    # Aggiungiamo circa 61 giorni (equivalenti a 2 mesi) alla data attuale
-    due_mesi_futuro_dt = data_oggi_dt + timedelta(days=61)
-    due_mesi_futuro = due_mesi_futuro_dt.strftime("%Y-%m-%d")
+    # Aggiungiamo circa 30 giorni (un mese) alla data attuale
+    un_mese_futuro_dt = data_oggi_dt + timedelta(days=30)
+    un_mese_futuro = un_mese_futuro_dt.strftime("%Y-%m-%d")
 
     # Riferimento per capire se l'evento è già concluso
     riferimento_fine = func.coalesce(SagraDB.data_fine, SagraDB.data_inizio)
@@ -104,7 +104,7 @@ def filtro_solo_attive(query, oggi: str):
             and_(SagraDB.data_inizio.is_(None), SagraDB.data_fine.is_(None)),
             and_(
                 riferimento_fine >= oggi,
-                riferimento_inizio <= due_mesi_futuro,
+                riferimento_inizio <= un_mese_futuro,
             ),
         )
     )
