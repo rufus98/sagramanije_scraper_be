@@ -79,12 +79,5 @@ def on_startup():
 @app.get("/")
 def root():
     return {
-        "message": "Sagre API attiva (MySQL)",
-        "endpoints": [
-            "/sagre/ottimizza (POST)",
-            "/sagre/vicine (GET)",
-            "/sagre/{id} (GET)",
-            "/sagre/{id}/attivita (GET, POST)",
-            "/docs",
-        ],
+        "message": "Sagre API attiva"
     }

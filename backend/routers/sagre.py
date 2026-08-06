@@ -20,24 +20,24 @@ router = APIRouter(prefix="/sagre", tags=["sagre"])
 
 # NOTA: rotta attualmente disabilitata (manca il decoratore @router.post) —
 # così era anche prima della riorganizzazione, comportamento preservato.
-def ottimizza_dataset(payload: OttimizzaRequest, db: Session = Depends(get_db)):
-    """
-    Riceve una lista di eventi (anche con lat/leng nulli), geocodifica
-    solo ciò che manca (deduplicato per citta+provincia) e fa upsert
-    nel database. Ogni evento è identificato univocamente da
-    nome_sagra+citta+data_inizio, quindi rilanciare la stessa importazione
-    non crea duplicati: aggiorna solo i campi cambiati.
-    """
-    # "id" è generato dal DB: va escluso dall'input, altrimenti l'upsert
-    # proverebbe a scrivere id=None sulla chiave primaria di righe esistenti.
-    events = [e.model_dump(exclude={"id"}) for e in payload.events]
-
-    if not events:
-        raise HTTPException(status_code=400, detail="La lista di eventi è vuota.")
-
-    result = sagre_service.importa_eventi(db, events)
-
-    return OttimizzaResponse(stats=result["stats"], events=result["events"])
+#def ottimizza_dataset(payload: OttimizzaRequest, db: Session = Depends(get_db)):
+#    """
+#    Riceve una lista di eventi (anche con lat/leng nulli), geocodifica
+#    solo ciò che manca (deduplicato per citta+provincia) e fa upsert
+#    nel database. Ogni evento è identificato univocamente da
+#    nome_sagra+citta+data_inizio, quindi rilanciare la stessa importazione
+#    non crea duplicati: aggiorna solo i campi cambiati.
+#    """
+#    # "id" è generato dal DB: va escluso dall'input, altrimenti l'upsert
+#    # proverebbe a scrivere id=None sulla chiave primaria di righe esistenti.
+#    events = [e.model_dump(exclude={"id"}) for e in payload.events]
+#
+#    if not events:
+#        raise HTTPException(status_code=400, detail="La lista di eventi è vuota.")
+#
+#    result = sagre_service.importa_eventi(db, events)
+#
+#    return OttimizzaResponse(stats=result["stats"], events=result["events"])
 
 
 @router.get("/vicine", response_model=VicineResponse)

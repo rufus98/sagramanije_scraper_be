@@ -35,12 +35,3 @@ def lista_attivita(sagra_id: int, db: Session = Depends(get_db)):
             for gruppo in gruppi
         ],
     )
-
-
-@router.post("/{sagra_id}/attivita", response_model=Attivita, status_code=201)
-def crea_attivita(sagra_id: int, payload: AttivitaCreate, db: Session = Depends(get_db)):
-    """Crea una nuova attività per la sagra indicata."""
-    _controlla_sagra_esiste(db, sagra_id)
-
-    riga = attivita_service.crea_attivita(db, sagra_id, payload.model_dump())
-    return Attivita.model_validate(riga, from_attributes=True)
